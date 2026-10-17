@@ -56,6 +56,7 @@
   /* On the Pi's own touchscreen (display.py adds the class): the main card full height, no recent-calls list. */
   body.kiosk { grid-template-rows: auto 1fr; }
   body.kiosk footer { display: none; }
+  body.kiosk, body.kiosk * { cursor: none; }  /* no mouse pointer left in the middle of a touchscreen */
 
   body.stale main, body.down main { opacity: .45; }
   #notice { display: none; font-size: max(14px, 3vh); color: var(--bad); font-weight: 600; }

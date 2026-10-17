@@ -34,6 +34,8 @@ No apps, no Windows, no extra Python packages: it's plain Python 3 (standard lib
 
 The Pi, display and case came from [PiShop.us](https://www.pishop.us/); any Raspberry Pi reseller has the same parts.
 
+<img src="docs/setup.jpg" alt="The Touch Display 2 in its SmartiPi case, showing a made-up fire dispatch call in red, on top of the BCD536HP" width="480">
+
 ## Try it first, no scanner needed
 
 On any computer with Python 3:
