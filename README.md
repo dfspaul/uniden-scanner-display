@@ -2,7 +2,7 @@
 
 A live, color-coded display of what a Uniden BCD536HP scanner is receiving, served as a web page. Plug the scanner into a Raspberry Pi with a USB cable, then open the page on anything with a browser: a phone, an old iPad on the end table, a laptop, or a touchscreen on the Pi itself.
 
-![Live view: a fire/EMS call coming in, recent calls below](docs/live.png)
+![Live view with made-up calls: law, fire, an encrypted call and an air ambulance coming in, recent calls below](docs/demo.gif)
 
 It started because the scanner's own backlight died, but it turned out better than the built-in screen even when that works: big text you can read across the room, colors you can tell apart at a glance, and a history of what you missed.
 
