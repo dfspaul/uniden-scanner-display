@@ -12,7 +12,7 @@
 set -euo pipefail
 
 URL=http://localhost/
-ROTATE=90        # the panel is portrait; 90 turns it to landscape (right for a SmartiPi Touch case). Upside down? use 270. 0 = portrait
+ROTATE=90        # the panel is portrait; 90 turns it to landscape (right for the SmartiPi Touch Pro 3). Upside down? use 270. 0 = portrait
 SCALE=1          # Chromium zoom; the page sizes itself from the screen, so 1 should do
 BLANK_MIN=0      # turn the screen off after this many idle minutes (a touch wakes it); 0 = never
 

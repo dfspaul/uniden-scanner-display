@@ -29,7 +29,7 @@ No apps, no Windows, no extra Python packages: it's plain Python 3 (standard lib
 - Uniden BCD536HP, firmware 1.23.00
 - Raspberry Pi 3 Model B+ running Raspberry Pi OS Lite (64-bit)
 - Raspberry Pi Touch Display 2, 7"
-- A SmartiPi Touch case for the Touch Display 2, which holds the Pi on the back of the screen
+- SmartiPi Touch Pro 3 (Large) case, which holds the Pi on the back of the screen
 - A mini-USB to USB-A cable, scanner to Pi
 
 The Pi, display and case came from [PiShop.us](https://www.pishop.us/); any Raspberry Pi reseller has the same parts.
