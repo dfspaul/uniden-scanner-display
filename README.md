@@ -12,7 +12,7 @@ It started because the scanner's own backlight died, but it turned out better th
 - **History** (`/history`): the last 200 calls, grouped by day, with time, duration and service type.
 - **Keeps retrying** if the scanner is off, unplugged, or still starting up, and the page warns you when it loses the scanner or the server.
 
-<img src="docs/history.png" alt="History page on a phone" width="320">
+<img src="docs/history.gif" alt="History page on a phone, with made-up calls arriving at the top" width="320">
 
 No apps, no Windows, no extra Python packages: it's plain Python 3 (standard library only) and one HTML page.
 
