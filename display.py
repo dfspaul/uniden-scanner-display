@@ -10,7 +10,7 @@ other's replies. The page polls /state.json; every stop with signal goes in the 
 watch, including silent ones (a key-up or data burst with no voice). If the scanner is off, unplugged,
 or still showing its USB mode prompt (it picks serial on its own after ~15 s), this keeps retrying.
 """
-import json, os, random, sys, threading, time
+import glob, json, math, os, random, sys, threading, time
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 import uniden
@@ -23,6 +23,19 @@ FLIGHT = [n.strip() for n in os.environ.get("SCANNER_FLIGHT", "Air Medical").spl
 
 lock = threading.Lock()
 state = {"connected": False, "error": "starting", "now": None, "log": []}
+
+# A touchscreen on the Pi: normal brightness during and just after calls, lower once it has been quiet a while.
+# A call or a tap on the screen (the page POSTs /wake) brings it back. Levels are 0-31 on the Touch Display 2.
+BRIGHT = int(os.environ.get("SCANNER_BRIGHT", 15))
+DIM = int(os.environ.get("SCANNER_DIM", 2))
+DIM_AFTER = int(os.environ.get("SCANNER_DIM_AFTER", 180))  # seconds with no call and no tap
+# With SCANNER_LAT and SCANNER_LON set (to 0.1 degree is plenty), both levels are lower from sunset to
+# sunrise, so a call in a dark room isn't startling.
+NIGHT_BRIGHT = int(os.environ.get("SCANNER_NIGHT_BRIGHT", 5))
+NIGHT_DIM = int(os.environ.get("SCANNER_NIGHT_DIM", 2))
+LAT = float(os.environ["SCANNER_LAT"]) if os.environ.get("SCANNER_LAT") else None
+LON = float(os.environ["SCANNER_LON"]) if os.environ.get("SCANNER_LON") else None
+woke = time.time()
 
 
 def kind(s):
@@ -114,7 +127,73 @@ def poll_demo():
             time.sleep(POLL)
 
 
+def daylight(n, lat, lon):
+    """(sunrise, sunset) as Unix times for Julian day number n (days since 2000-01-01 12:00 UTC), by the
+    standard sunrise equation; good to a minute or two. None, None if the sun doesn't rise or set that day."""
+    j = n - lon / 360
+    m = (357.5291 + 0.98560028 * j) % 360
+    rm = math.radians(m)
+    lam = math.radians((m + 1.9148 * math.sin(rm) + 0.02 * math.sin(2 * rm) + 0.0003 * math.sin(3 * rm) + 282.9372) % 360)
+    transit = 2451545.0 + j + 0.0053 * math.sin(rm) - 0.0069 * math.sin(2 * lam)
+    dec = math.asin(math.sin(lam) * math.sin(math.radians(23.4397)))
+    phi = math.radians(lat)
+    cos_w = (math.sin(math.radians(-0.833)) - math.sin(phi) * math.sin(dec)) / (math.cos(phi) * math.cos(dec))
+    if not -1 <= cos_w <= 1:
+        return None, None
+    w = math.degrees(math.acos(cos_w)) / 360
+    unix = lambda jd: (jd - 2440587.5) * 86400
+    return unix(transit - w), unix(transit + w)
+
+
+def is_night(t=None):
+    """True from sunset to sunrise; always False without SCANNER_LAT and SCANNER_LON."""
+    if LAT is None or LON is None:
+        return False
+    t = time.time() if t is None else t
+    n = round(t / 86400 + 2440587.5 - 2451545.0 + 0.0008)
+    for d in (n - 1, n, n + 1):
+        rise, set_ = daylight(d, LAT, LON)
+        if rise is not None and rise <= t < set_:
+            return False
+    return True
+
+
+def backlight():
+    """Set the screen's backlight from the last call or tap. Does nothing on a machine without one."""
+    paths = glob.glob("/sys/class/backlight/*/brightness")
+    if not paths:
+        return
+    current = None
+    while True:
+        with lock:
+            live = state["now"] is not None
+            last = max(woke, state["log"][0]["last"]) if state["log"] else woke
+        bright, dim = (NIGHT_BRIGHT, NIGHT_DIM) if is_night() else (BRIGHT, DIM)
+        level = bright if live or time.time() - last < DIM_AFTER else dim
+        if level != current:
+            try:
+                with open(paths[0], "w") as f:
+                    f.write(str(level))
+                current = level
+                print(f"backlight {level}", flush=True)  # in journalctl -u scanner-display
+            except OSError as e:  # not in the video group, say; keep serving the page
+                print(f"backlight: {e}", file=sys.stderr, flush=True)
+                return
+        time.sleep(POLL)
+
+
 class Handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        global woke
+        # A tap on the Pi's own screen: wake the backlight. Only the Pi itself may.
+        if self.path == "/wake" and self.client_address[0] in ("127.0.0.1", "::1"):
+            with lock:
+                woke = time.time()
+            self.send_response(204)
+            self.end_headers()
+        else:
+            self.send_error(404)
+
     def do_GET(self):
         if self.path == "/state.json":
             with lock:
@@ -123,6 +202,9 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path in ("/", "/index.html", "/history"):
             with open(os.path.join(HERE, "history.html" if self.path == "/history" else "display.html"), "rb") as f:
                 body = f.read()
+            # A request from the Pi itself is its touchscreen: the main card gets the full height, no recent-calls list.
+            if self.client_address[0] in ("127.0.0.1", "::1"):
+                body = body.replace(b"<body>", b'<body class="kiosk">', 1)
             ctype = "text/html; charset=utf-8"
         else:
             self.send_error(404)
@@ -143,6 +225,8 @@ def main(args):
     args = [a for a in args if a != "--demo"]
     port = int(args[0]) if args else 8000
     threading.Thread(target=poll_demo if demo else poll_scanner, daemon=True).start()
+    if not demo:
+        threading.Thread(target=backlight, daemon=True).start()
     print(f"serving on http://0.0.0.0:{port}/" + (" (demo)" if demo else ""), flush=True)
     try:
         ThreadingHTTPServer(("", port), Handler).serve_forever()

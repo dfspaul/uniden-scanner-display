@@ -16,6 +16,7 @@
   h1 { font-size: 1.4em; }
   .btn { display: inline-flex; align-items: center; min-height: 44px; padding: 0 1.1em; border-radius: 22px;
          background: var(--panel); color: var(--text); text-decoration: none; border: 1px solid #2a2f37; }
+  .btn { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
   .btn:active { background: #22262d; }
   #status { color: var(--dim); font-size: .9em; }
   #status.bad { color: var(--bad); }
@@ -66,6 +67,9 @@
     if (Date.now() - lastOk > 5000) { $("status").className = "bad"; $("status").textContent = "can't reach the display server"; }
   }
   setInterval(tick, 2000); tick();
+  // On the Pi's own screen a tap wakes the backlight (see display.py).
+  if (document.body.classList.contains("kiosk"))
+    addEventListener("pointerdown", () => fetch("wake", { method: "POST" }).catch(() => {}), { capture: true });
 </script>
 </body>
 </html>

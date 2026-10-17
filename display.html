@@ -26,6 +26,7 @@
   /* Big enough to tap on the 7" touchscreen. */
   .btn { display: inline-flex; align-items: center; min-height: 44px; padding: 0 1.1em; border-radius: 22px;
          background: var(--panel); color: var(--text); text-decoration: none; border: 1px solid #2a2f37; }
+  .btn { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
   .btn:active { background: #22262d; }
 
   main { background: var(--panel); border-radius: 2vh; padding: 3vh 3vw; display: flex; flex-direction: column; justify-content: center; min-height: 0;
@@ -51,6 +52,10 @@
   #log li { display: grid; grid-template-columns: 5.5em 1fr auto; gap: 1em; padding: .35em 0; border-top: 1px solid #22262d; color: var(--dim); white-space: nowrap; }
   #log li span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; color: var(--text); }
   #log li .enc { color: var(--enc); }
+  #log li.pad { visibility: hidden; }
+  /* On the Pi's own touchscreen (display.py adds the class): the main card full height, no recent-calls list. */
+  body.kiosk { grid-template-rows: auto 1fr; }
+  body.kiosk footer { display: none; }
 
   body.stale main, body.down main { opacity: .45; }
   #notice { display: none; font-size: max(14px, 3vh); color: var(--bad); font-weight: 600; }
@@ -69,7 +74,8 @@
 <script>
   const $ = id => document.getElementById(id);
   let lastOk = 0, skew = 0;
-  const LOG_ROWS = () => Math.max(2, Math.floor(innerHeight / 120));
+  // Recent calls under the main card: 3 on a 720-px screen, more on taller ones.
+  const LOG_ROWS = () => Math.max(2, Math.floor(innerHeight / 200));
 
   const hhmm = t => new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
   function ago(sec) {
@@ -113,7 +119,9 @@
     const rows = s.log.slice(1, 1 + LOG_ROWS());
     $("log").innerHTML = rows.map(e =>
       `<li><span>${hhmm(e.start)}</span><span><i class="dot ${e.kind || ""}"></i>${esc(e.channel || e.freq)} <small>· ${esc(e.department || "")}</small></span>` +
-      `<span class="${e.encrypted ? "enc" : ""}">${e.encrypted ? "encrypted" : esc(e.freq || "")}</span></li>`).join("");
+      `<span class="${e.encrypted ? "enc" : ""}">${e.encrypted ? "encrypted" : esc(e.freq || "")}</span></li>`).join("") +
+      // Blank rows hold the space, so the main card doesn't shrink as calls come in.
+      `<li class="pad"><span>&nbsp;</span></li>`.repeat(Math.max(0, LOG_ROWS() - rows.length));
   }
   // Tab icon follows the call: law/fire/flight colour while live, encrypted amber, otherwise green; dim when idle, faint when down.
   const ICON = c => "data:image/svg+xml," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#0b0d10"/><path d="M 11 11 A 7 7 0 0 0 11 21 M 21 11 A 7 7 0 0 1 21 21 M 7 7 A 12.7 12.7 0 0 0 7 25 M 25 7 A 12.7 12.7 0 0 1 25 25" fill="none" stroke="${c}" stroke-width="2.6" stroke-linecap="round"/><circle cx="16" cy="16" r="3.2" fill="${c}"/></svg>`);
@@ -126,6 +134,10 @@
     if (c !== iconColor) $("favicon").href = ICON(iconColor = c);
   }
   const esc = t => String(t).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+  // On the Pi's own screen a tap anywhere also brings the backlight back up (display.py dims it when quiet).
+  if (document.body.classList.contains("kiosk"))
+    addEventListener("pointerdown", () => fetch("wake", { method: "POST" }).catch(() => {}), { capture: true });
 
   async function tick() {
     try {

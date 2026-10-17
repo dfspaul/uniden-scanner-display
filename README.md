@@ -24,6 +24,16 @@ No apps, no Windows, no extra Python packages: it's plain Python 3 (standard lib
 - **Or, untested: the rear GPS/Remote port.** Other users report that the remote commands also work on the 9-pin serial port on the back, which would leave the front port free. It needs Uniden's serial cable (from the BC-SGPS GPS kit) and a USB-to-DB9 **null-modem** adapter, with the scanner's GPS baud rate set to 115200 in its menu. A USB serial adapter shows up as `/dev/ttyUSB0` on Linux, which isn't found on its own, so set `SCANNER_PORT=/dev/ttyUSB0`. If you try it, please open an issue saying whether it worked.
 - **For a Pi:** a 5V power supply rated 2.5 A or more (3 A if you add a screen) and a microSD card.
 
+### The setup this was built on
+
+- Uniden BCD536HP, firmware 1.23.00
+- Raspberry Pi 3 Model B+ running Raspberry Pi OS Lite (64-bit)
+- Raspberry Pi Touch Display 2, 7"
+- A SmartiPi Touch case for the Touch Display 2, which holds the Pi on the back of the screen
+- A mini-USB to USB-A cable, scanner to Pi
+
+The Pi, display and case came from [PiShop.us](https://www.pishop.us/); any Raspberry Pi reseller has the same parts.
+
 ## Try it first, no scanner needed
 
 On any computer with Python 3:
@@ -75,7 +85,30 @@ Open the page in Safari, then use **Share → Add to Home Screen** so it opens f
 
 ### A touchscreen on the Pi
 
-Coming once it has been tested. The page is already sized for a 7" touchscreen (the History and Live view buttons are large enough to tap); what's left is starting a full-screen browser on the Pi at boot.
+Tested with the Raspberry Pi Touch Display 2 (7", 720 × 1280) on a Pi 3B+. Raspberry Pi OS finds the display on its own; there's nothing to add to `config.txt`. With `display.py` already installed as above, from the same folder:
+
+```sh
+kiosk/install.sh           # packages and files; safe to run before the screen is connected
+kiosk/install.sh enable    # start it now and at every boot
+```
+
+That starts Chromium full screen on the Pi's own screen at boot, in [cage](https://github.com/cage-kiosk/cage) (a one-app compositor; no desktop is installed), once the display server answers. `kiosk/install.sh disable` gives you a plain console back. The settings are at the top of the script:
+
+- `ROTATE=90` turns the portrait panel to landscape, and turns the touch input with it. If the picture is upside down in your case, use `270`.
+- `BLANK_MIN` turns the screen off entirely after that many idle minutes (a touch wakes it). It's `0`, never, because the dimming below usually does the job better.
+
+On the Pi's own screen the page leaves out the recent-calls list, so the current call gets the full height, and `display.py` dims the backlight once it has been quiet for 3 minutes. A new call or a tap anywhere on the screen brings it back. The levels go from 0 to 31 on the Touch Display 2; to change them, add any of these with `sudo systemctl edit scanner-display` as in [Colors](#colors):
+
+| Setting | Default | |
+|---|---|---|
+| `SCANNER_BRIGHT` | 15 | during and just after a call |
+| `SCANNER_DIM` | 2 | once it's quiet |
+| `SCANNER_DIM_AFTER` | 180 | seconds of quiet (no call, no tap) before dimming |
+| `SCANNER_LAT`, `SCANNER_LON` | unset | your latitude and longitude, to switch to the night levels from sunset to sunrise; one decimal place is plenty |
+| `SCANNER_NIGHT_BRIGHT` | 5 | during a call at night |
+| `SCANNER_NIGHT_DIM` | 2 | quiet at night |
+
+Each change of level is logged: `journalctl -u scanner-display -f`. Setting the backlight needs the service's user to be in the `video` group, which the first user on Raspberry Pi OS already is. A machine without a backlight just skips this.
 
 ## Colors
 
