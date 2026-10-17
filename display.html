@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230b0d10'/><path d='M 11 11 A 7 7 0 0 0 11 21 M 21 11 A 7 7 0 0 1 21 21 M 7 7 A 12.7 12.7 0 0 0 7 25 M 25 7 A 12.7 12.7 0 0 1 25 25' fill='none' stroke='%233ddc84' stroke-width='2.6' stroke-linecap='round'/><circle cx='16' cy='16' r='3.2' fill='%233ddc84'/></svg>">
+<link id="favicon" rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230b0d10'/><path d='M 11 11 A 7 7 0 0 0 11 21 M 21 11 A 7 7 0 0 1 21 21 M 7 7 A 12.7 12.7 0 0 0 7 25 M 25 7 A 12.7 12.7 0 0 1 25 25' fill='none' stroke='%233ddc84' stroke-width='2.6' stroke-linecap='round'/><circle cx='16' cy='16' r='3.2' fill='%233ddc84'/></svg>">
 <title>Scanner</title>
 <style>
   :root {
@@ -115,6 +115,16 @@
       `<li><span>${hhmm(e.start)}</span><span><i class="dot ${e.kind || ""}"></i>${esc(e.channel || e.freq)} <small>· ${esc(e.department || "")}</small></span>` +
       `<span class="${e.encrypted ? "enc" : ""}">${e.encrypted ? "encrypted" : esc(e.freq || "")}</span></li>`).join("");
   }
+  // Tab icon follows the call: law/fire/flight colour while live, encrypted amber, otherwise green; dim when idle, faint when down.
+  const ICON = c => "data:image/svg+xml," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#0b0d10"/><path d="M 11 11 A 7 7 0 0 0 11 21 M 21 11 A 7 7 0 0 1 21 21 M 7 7 A 12.7 12.7 0 0 0 7 25 M 25 7 A 12.7 12.7 0 0 1 25 25" fill="none" stroke="${c}" stroke-width="2.6" stroke-linecap="round"/><circle cx="16" cy="16" r="3.2" fill="${c}"/></svg>`);
+  let iconColor;
+  function setIcon(s, stale) {
+    const top = s && s.log[0], live = s && s.connected && !stale && !!s.now && !!top;
+    const v = !s || !s.connected || stale ? "--faint" : !live ? "--dim"
+      : ["law", "fire", "flight"].includes(top.kind) ? "--" + top.kind : top.encrypted ? "--enc" : "--live";
+    const c = getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+    if (c !== iconColor) $("favicon").href = ICON(iconColor = c);
+  }
   const esc = t => String(t).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
   async function tick() {
@@ -125,9 +135,11 @@
       lastOk = Date.now();
       document.body.classList.remove("stale");
       render(s);
+      setIcon(s, false);
     } catch (e) { /* handled by the stale check */ }
     if (Date.now() - lastOk > 5000) {
       document.body.classList.add("stale");
+      setIcon(null, true);
       $("notice").textContent = lastOk ? "display not updating since " + new Date(lastOk).toLocaleTimeString() : "can't reach the display server";
     }
   }
