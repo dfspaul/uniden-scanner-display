@@ -112,6 +112,8 @@ On the Pi's own screen the page leaves out the recent-calls list, so the current
 
 Each change of level is logged: `journalctl -u scanner-display -f`. Setting the backlight needs the service's user to be in the `video` group, which the first user on Raspberry Pi OS already is. A machine without a backlight just skips this.
 
+On the Touch Display 2 the touch chip and the panel's controller share one I2C bus. Now and then a brightness change hits the bus during a touch read and the screen goes dark: tapping doesn't wake it and setting the level again doesn't help. When that happens the kernel logs `Goodix-TS 10-005d: Error reading …`. `display.py` watches for that line, turns the screen's output off and on again in the kiosk (which brings it back after about 2 seconds), and logs `display reset after: …`. Reading the kernel log needs the service's user to be in the `adm` group, which the first user on Raspberry Pi OS already is. Each change of level is another chance for this to happen. To change the level less often, set `SCANNER_DIM` to the same value as `SCANNER_BRIGHT` (no dimming except at night, if you set `SCANNER_LAT` and `SCANNER_LON`), or set a longer `SCANNER_DIM_AFTER`.
+
 ## Colors
 
 The color comes from each channel's service type, which the scanner reports for every call (from the Uniden / RadioReference database):
