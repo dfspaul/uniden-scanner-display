@@ -20,7 +20,8 @@ No apps, no Windows, no extra Python packages: it's plain Python 3 (standard lib
 
 - **A Uniden BCD536HP.** Tested on firmware 1.23.00. The BCD436HP uses the same remote commands and should work, but hasn't been tested. Newer SDS models are untested.
 - **A computer to plug it into.** A Raspberry Pi is ideal (any model with a USB-A port: a Pi 3 is plenty), but any Linux machine or Mac works.
-- **A USB cable for the scanner's mini-USB port.** The BCD536HP has two USB ports. The **mini-USB** port is the one that talks to a computer. The full-size USB-A port is only for Uniden's Wi-Fi adapter. You need mini-USB on the scanner end, and whatever your Pi or computer takes on the other end (USB-A for a Pi 3 or 4). Push the plug in firmly: a half-seated mini-USB plug often isn't detected.
+- **A USB cable for the mini-USB port on the scanner's front panel.** The BCD536HP has two USB ports, and only the **front mini-USB** port talks to a computer. The full-size USB-A port is only for Uniden's Wi-Fi adapter. You need mini-USB on the scanner end, and whatever your Pi or computer takes on the other end (USB-A for a Pi 3 or 4). Push the plug in firmly: a half-seated mini-USB plug often isn't detected.
+- **Or, untested: the rear GPS/Remote port.** Other users report that the remote commands also work on the 9-pin serial port on the back, which would leave the front port free. It needs Uniden's serial cable (from the BC-SGPS GPS kit) and a USB-to-DB9 **null-modem** adapter, with the scanner's GPS baud rate set to 115200 in its menu. A USB serial adapter shows up as `/dev/ttyUSB0` on Linux, which isn't found on its own, so set `SCANNER_PORT=/dev/ttyUSB0`. If you try it, please open an issue saying whether it worked.
 - **For a Pi:** a 5V power supply rated 2.5 A or more (3 A if you add a screen) and a microSD card.
 
 ## Try it first, no scanner needed
@@ -37,13 +38,15 @@ Open http://localhost:8000/ to watch made-up calls come in.
 
 ## Check that the scanner talks
 
-Plug the scanner's mini-USB port into the computer and turn the scanner on. If it asks **Select USB Mode**, leave it alone: after about 15 seconds it picks Serial Port on its own (firmware 1.10.02 and later). Then:
+Plug the scanner's front mini-USB port into the computer and turn the scanner on. With a USB cable attached at startup, the scanner asks **Select USB Mode**: Mass Storage (for reading its SD card) or Serial Port. **Leave it alone and wait about 15 seconds**: on firmware 1.10.02 and later it picks Serial Port on its own, which is the mode this needs. Don't choose Mass Storage. The display server just keeps retrying until the serial port appears, so it's fine to start it before the scanner is ready. Then:
 
 ```sh
 ./uniden.py MDL VER       # BCD536HP, then the firmware version
 ./uniden.py status        # what it's on right now
 ./uniden.py watch         # a line per call; Ctrl-C to stop
 ```
+
+If the scanner ends up in Mass Storage mode anyway, it shows up as a USB drive instead of a serial port, and nothing here can talk to it. Unplug the USB cable and plug it back in (or power the scanner off and on), and wait out the prompt again.
 
 The scanner shows up as `/dev/ttyACM0` on Linux and `/dev/cu.usbmodem…` on a Mac, with no driver to install. If more than one such port is present, set `SCANNER_PORT=/dev/ttyACM0` (or whichever it is). On Linux other than Raspberry Pi OS, if you get "permission denied", add yourself to the `dialout` group (`sudo usermod -aG dialout $USER`) and log in again.
 
