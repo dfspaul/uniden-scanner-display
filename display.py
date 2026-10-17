@@ -10,7 +10,7 @@ other's replies. The page polls /state.json; every stop with signal goes in the 
 watch, including silent ones (a key-up or data burst with no voice). If the scanner is off, unplugged,
 or still showing its USB mode prompt (it picks serial on its own after ~15 s), this keeps retrying.
 """
-import glob, json, math, os, random, sys, threading, time
+import glob, json, math, os, random, re, shutil, subprocess, sys, threading, time
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 import uniden
@@ -36,6 +36,7 @@ NIGHT_DIM = int(os.environ.get("SCANNER_NIGHT_DIM", 2))
 LAT = float(os.environ["SCANNER_LAT"]) if os.environ.get("SCANNER_LAT") else None
 LON = float(os.environ["SCANNER_LON"]) if os.environ.get("SCANNER_LON") else None
 woke = time.time()
+rewrite = threading.Event()  # set after a display reset: the backlight thread writes its level again
 
 
 def kind(s):
@@ -170,6 +171,9 @@ def backlight():
             last = max(woke, state["log"][0]["last"]) if state["log"] else woke
         bright, dim = (NIGHT_BRIGHT, NIGHT_DIM) if is_night() else (BRIGHT, DIM)
         level = bright if live or time.time() - last < DIM_AFTER else dim
+        if rewrite.is_set():
+            rewrite.clear()
+            current = None
         if level != current:
             try:
                 with open(paths[0], "w") as f:
@@ -180,6 +184,52 @@ def backlight():
                 print(f"backlight: {e}", file=sys.stderr, flush=True)
                 return
         time.sleep(POLL)
+
+
+def reset_display():
+    """Turn the screen's output off and on again in the kiosk (cage), which sets the panel up from scratch.
+    True if it worked."""
+    env = {**os.environ, "XDG_RUNTIME_DIR": os.environ.get("SCANNER_XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"),
+           "WAYLAND_DISPLAY": os.environ.get("SCANNER_WAYLAND_DISPLAY", "wayland-0")}
+
+    def randr(*args):
+        return subprocess.run(["wlr-randr", *args], env=env, capture_output=True, text=True, timeout=10, check=True).stdout
+
+    try:
+        out = randr()
+        name = out.split()[0]  # first line: DSI-1 "(null) (null) (DSI-1)"
+        m = re.search(r"^\s*Transform:\s*(\S+)", out, re.M)
+        randr("--output", name, "--off")
+        time.sleep(2)
+        randr("--output", name, "--on", *(["--transform", m.group(1)] if m else []))
+        return True
+    except (OSError, IndexError, subprocess.SubprocessError) as e:  # the kiosk not up yet, say
+        print(f"display reset: {e}", file=sys.stderr, flush=True)
+        return False
+
+
+def watch_panel():
+    """Bring the screen back when it goes dark on its own. On the Touch Display 2 the touch chip and the panel's
+    controller (backlight, panel power) share one I2C bus; a backlight write that collides with a touch read can
+    leave the panel dark, and the kernel logs "Goodix-TS ...: Error reading". Writing the level again doesn't
+    bring it back and neither does a tap; turning the output off and on does."""
+    if not glob.glob("/sys/class/backlight/*/brightness") or not shutil.which("wlr-randr"):
+        return
+    last = 0
+    while True:
+        try:  # reading the kernel log needs the adm or systemd-journal group
+            p = subprocess.Popen(["journalctl", "-k", "-f", "-n", "0", "-o", "cat"], stdout=subprocess.PIPE, text=True)
+        except OSError as e:
+            print(f"display watch: {e}", file=sys.stderr, flush=True)
+            return
+        for line in p.stdout:
+            if "Goodix-TS" in line and "Error reading" in line and time.time() - last > 30:
+                last = time.time()
+                print(f"display reset after: {line.strip()}", flush=True)  # next to "backlight N" in the journal
+                if reset_display():
+                    rewrite.set()
+        p.wait()
+        time.sleep(5)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -227,6 +277,7 @@ def main(args):
     threading.Thread(target=poll_demo if demo else poll_scanner, daemon=True).start()
     if not demo:
         threading.Thread(target=backlight, daemon=True).start()
+        threading.Thread(target=watch_panel, daemon=True).start()
     print(f"serving on http://0.0.0.0:{port}/" + (" (demo)" if demo else ""), flush=True)
     try:
         ThreadingHTTPServer(("", port), Handler).serve_forever()
