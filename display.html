@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scanner</title>
+<style>
+  :root {
+    --bg: #0b0d10; --panel: #15181d; --text: #e9edf2; --dim: #8a94a3; --faint: #4a525e;
+    --live: #3ddc84; --enc: #ffb547; --bad: #ff5d5d;
+    --law: #1f5fd6; --fire: #d42a2a; --flight: #1f9e4a;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 16px/1.2 -apple-system, "Segoe UI", Roboto, "DejaVu Sans", sans-serif;
+    display: grid; grid-template-rows: auto 1fr auto; gap: 1.5vh; padding: 2vh 2.5vw;
+    overflow: hidden;
+  }
+  header { display: flex; justify-content: space-between; align-items: center; font-size: max(14px, 2.6vh); color: var(--dim); }
+  #conn::before { content: "●"; margin-right: .4em; color: var(--conn, var(--faint)); }
+  #clock { font-variant-numeric: tabular-nums; }
+  .right { display: flex; align-items: center; gap: 1em; }
+  /* Big enough to tap on the 7" touchscreen. */
+  .btn { display: inline-flex; align-items: center; min-height: 44px; padding: 0 1.1em; border-radius: 22px;
+         background: var(--panel); color: var(--text); text-decoration: none; border: 1px solid #2a2f37; }
+  .btn:active { background: #22262d; }
+
+  main { background: var(--panel); border-radius: 2vh; padding: 3vh 3vw; display: flex; flex-direction: column; justify-content: center; min-height: 0;
+         border-left: 1.2vh solid var(--edge, transparent); transition: border-color .2s; }
+  #badge { font-size: max(14px, 3vh); font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--badge, var(--dim)); }
+  #channel { font-size: min(14vh, 9vw); font-weight: 800; line-height: 1.05; margin: .8vh 0; overflow-wrap: anywhere; }
+  #dept { font-size: min(6vh, 4.5vw); color: var(--text); opacity: .85; }
+  #meta { font-size: min(4vh, 3.4vw); color: var(--dim); margin-top: 1vh; font-variant-numeric: tabular-nums; }
+  main.idle #channel { color: var(--dim); }
+  /* Law blue, fire/EMS red, flight green: full color while receiving, a faint wash once it's quiet. */
+  main.law { --kind: var(--law); } main.fire { --kind: var(--fire); } main.flight { --kind: var(--flight); }
+  main.law, main.fire, main.flight { background: var(--kind); }
+  main.law #dept, main.fire #dept, main.flight #dept, main.law #meta, main.fire #meta, main.flight #meta { color: #fff; opacity: .85; }
+  main.idle.law, main.idle.fire, main.idle.flight { background: color-mix(in srgb, var(--kind) 22%, var(--panel)); }
+  main.idle.law #channel, main.idle.fire #channel, main.idle.flight #channel { color: var(--text); opacity: .8; }
+  main.law #badge, main.fire #badge, main.flight #badge { color: #fff; }
+  main.law:not(.idle) #badge.enc, main.fire:not(.idle) #badge.enc, main.flight:not(.idle) #badge.enc { color: var(--enc); text-shadow: 0 1px 3px #000a; }
+  .dot { display: inline-block; width: .7em; height: .7em; border-radius: 50%; margin-right: .5em; background: var(--faint); }
+  .dot.law { background: var(--law); } .dot.fire { background: var(--fire); } .dot.flight { background: var(--flight); }
+
+  footer { min-height: 0; }
+  #log { list-style: none; padding: 0; font-size: max(13px, 2.8vh); font-variant-numeric: tabular-nums; }
+  #log li { display: grid; grid-template-columns: 5.5em 1fr auto; gap: 1em; padding: .35em 0; border-top: 1px solid #22262d; color: var(--dim); white-space: nowrap; }
+  #log li span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+  #log li .enc { color: var(--enc); }
+
+  body.stale main, body.down main { opacity: .45; }
+  #notice { display: none; font-size: max(14px, 3vh); color: var(--bad); font-weight: 600; }
+  body.stale #notice, body.down #notice { display: block; }
+</style>
+</head>
+<body>
+<header><span id="conn">connecting…</span><span id="notice"></span><span class="right"><span id="clock"></span><a class="btn" href="history">History</a></span></header>
+<main id="main" class="idle">
+  <div id="badge">waiting</div>
+  <div id="channel">—</div>
+  <div id="dept"></div>
+  <div id="meta"></div>
+</main>
+<footer><ul id="log"></ul></footer>
+<script>
+  const $ = id => document.getElementById(id);
+  let lastOk = 0, skew = 0;
+  const LOG_ROWS = () => Math.max(2, Math.floor(innerHeight / 120));
+
+  const hhmm = t => new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+  function ago(sec) {
+    sec = Math.max(0, Math.round(sec));
+    if (sec < 60) return sec + " s ago";
+    if (sec < 3600) return Math.floor(sec / 60) + " min ago";
+    return Math.floor(sec / 3600) + " h " + Math.floor(sec % 3600 / 60) + " min ago";
+  }
+  const signal = n => "▮".repeat(n) + "▯".repeat(Math.max(0, 5 - n));
+
+  function render(s) {
+    const now = Date.now() / 1000 - skew;
+    const live = !!s.now;
+    const top = s.log[0];
+    const main = $("main"), root = document.documentElement.style;
+
+    root.setProperty("--conn", s.connected ? "var(--live)" : "var(--bad)");
+    $("conn").textContent = s.connected ? "scanner connected" : "scanner not connected";
+    document.body.classList.toggle("down", !s.connected);
+    if (!s.connected) $("notice").textContent = "retrying… " + (s.error || "");
+
+    if (top) {
+      $("channel").textContent = top.channel || top.freq || "—";
+      $("dept").textContent = [top.department, top.system].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).join(" · ");
+      $("meta").textContent = [top.freq, top.list].filter(Boolean).join("  ·  ");
+    }
+    main.classList.toggle("idle", !live);
+    for (const k of ["law", "fire", "flight"]) main.classList.toggle(k, !!top && top.kind === k);
+    $("badge").classList.toggle("enc", live && !!top.encrypted);
+    if (live && top.encrypted) {
+      $("badge").textContent = "encrypted · no audio  " + signal(s.now.signal);
+      main.style.setProperty("--edge", "var(--enc)"); main.style.setProperty("--badge", "var(--enc)");
+    } else if (live) {
+      $("badge").textContent = "receiving  " + signal(s.now.signal);
+      main.style.setProperty("--edge", "var(--live)"); main.style.setProperty("--badge", "var(--live)");
+    } else {
+      $("badge").textContent = top ? "last heard " + ago(now - top.last) : "nothing heard yet";
+      main.style.setProperty("--edge", "transparent"); main.style.setProperty("--badge", "var(--dim)");
+    }
+
+    const rows = s.log.slice(1, 1 + LOG_ROWS());
+    $("log").innerHTML = rows.map(e =>
+      `<li><span>${hhmm(e.start)}</span><span><i class="dot ${e.kind || ""}"></i>${esc(e.channel || e.freq)} <small>· ${esc(e.department || "")}</small></span>` +
+      `<span class="${e.encrypted ? "enc" : ""}">${e.encrypted ? "encrypted" : esc(e.freq || "")}</span></li>`).join("");
+  }
+  const esc = t => String(t).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+  async function tick() {
+    try {
+      const r = await fetch("state.json", { cache: "no-store" });
+      const s = await r.json();
+      skew = Date.now() / 1000 - s.time;
+      lastOk = Date.now();
+      document.body.classList.remove("stale");
+      render(s);
+    } catch (e) { /* handled by the stale check */ }
+    if (Date.now() - lastOk > 5000) {
+      document.body.classList.add("stale");
+      $("notice").textContent = lastOk ? "display not updating since " + new Date(lastOk).toLocaleTimeString() : "can't reach the display server";
+    }
+  }
+  setInterval(tick, 500); tick();
+  setInterval(() => $("clock").textContent = new Date().toLocaleTimeString([], { hour12: false }), 1000);
+</script>
+</body>
+</html>
