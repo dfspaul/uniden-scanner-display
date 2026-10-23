@@ -249,6 +249,17 @@ class Handler(BaseHTTPRequestHandler):
             with lock:
                 body = json.dumps({**state, "time": time.time()}).encode()
             ctype = "application/json"
+        elif self.path == "/panels.json":
+            # Extra buttons on the Pi's screen (see the README). Missing or broken: none, and say why in the log.
+            try:
+                with open(os.path.join(HERE, "panels.json"), encoding="utf-8") as f:
+                    panels = json.load(f)
+            except FileNotFoundError:
+                panels = []
+            except ValueError as e:
+                print(f"panels.json: {e}", file=sys.stderr, flush=True)
+                panels = []
+            body, ctype = json.dumps(panels).encode(), "application/json"
         elif self.path in ("/", "/index.html", "/history"):
             with open(os.path.join(HERE, "history.html" if self.path == "/history" else "display.html"), "rb") as f:
                 body = f.read()

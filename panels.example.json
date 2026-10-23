@@ -1,0 +1,4 @@
+[
+  { "label": "Home", "url": "https://dashboard.example.lan/", "minutes": 2 },
+  { "label": "Look in", "camera": "http://camera-box.local:1984/", "stream": "nursery", "minutes": 4 }
+]
