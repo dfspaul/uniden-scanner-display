@@ -58,13 +58,39 @@
   body.kiosk footer { display: none; }
   body.kiosk, body.kiosk * { cursor: none; }  /* no mouse pointer left in the middle of a touchscreen */
 
+  /* Panels (panels.json, Pi's own screen only): a web page or a camera over the scanner, with a button each. */
+  button.btn { font: inherit; cursor: pointer; }
+  #panel { position: fixed; inset: 0; z-index: 10; background: var(--bg); display: grid; grid-template-rows: auto 1fr; }
+  #panel[hidden] { display: none; }
+  #panelbar { display: flex; align-items: center; gap: 1em; padding: 1.2vh 2.5vw; font-size: max(14px, 2.6vh); }
+  #pcall { flex: 1; min-height: 44px; display: flex; align-items: center; padding: 0 1em; border-radius: 22px; font-weight: 700;
+           overflow: hidden; white-space: nowrap; text-overflow: ellipsis; visibility: hidden; background: var(--kind, var(--live)); color: #fff; }
+  #pcall.on { visibility: visible; }
+  #pcall.law { --kind: var(--law); } #pcall.fire { --kind: var(--fire); } #pcall.flight { --kind: var(--flight); }
+  #pcall.enc { --kind: #8a5a00; }
+  #pframe, #cam { grid-area: 2 / 1; }
+  #pframe { border: 0; width: 100%; height: 100%; background: var(--bg); }
+  #cam { position: relative; background: #000; display: grid; place-items: center; overflow: hidden; }
+  #cam[hidden], #pframe[hidden] { display: none; }
+  #cam video-stream { width: 100%; }
+  #cam .info { display: none; }  /* the player's own status line; #cammsg says it in words */
+  #cammsg { position: absolute; inset: auto 0 12vh; text-align: center; color: #ccc; font-size: max(16px, 3vh); }
+  #camnote { position: absolute; inset: 3vh 0 auto; text-align: center; font-size: max(16px, 3vh); pointer-events: none; }
+  #camnote span { background: rgba(0,0,0,.7); color: #fff; padding: .4em 1em; border-radius: 1em; }
+  #camnote[hidden] { display: none; }
+
   body.stale main, body.down main { opacity: .45; }
   #notice { display: none; font-size: max(14px, 3vh); color: var(--bad); font-weight: 600; }
   body.stale #notice, body.down #notice { display: block; }
 </style>
 </head>
 <body>
-<header><span id="conn">connecting…</span><span id="notice"></span><span class="right"><span id="clock"></span><a class="btn" href="history">History</a></span></header>
+<header><span id="conn">connecting…</span><span id="notice"></span><span class="right"><span id="clock"></span><span id="panelBtns" class="right"></span><a class="btn" href="history">History</a></span></header>
+<div id="panel" hidden>
+  <div id="panelbar"><span id="pcall"></span><button class="btn" id="back" type="button">Scanner</button></div>
+  <iframe id="pframe" title="Panel"></iframe>
+  <div id="cam" hidden><div id="cammsg"></div><div id="camnote" hidden><span></span></div></div>
+</div>
 <main id="main" class="idle">
   <div id="badge">waiting</div>
   <div id="channel">—</div>
@@ -104,6 +130,10 @@
       $("meta").textContent = [top.freq, top.list].filter(Boolean).join("  ·  ");
     }
     main.classList.toggle("idle", !live);
+    // With a panel open, a live call shows as a strip at its top; tap it to go back.
+    const pc = $("pcall");
+    pc.className = live && top ? ["on", top.kind || "", top.encrypted ? "enc" : ""].join(" ") : "";
+    if (live && top) pc.textContent = "● " + [top.channel || top.freq, top.department].filter(Boolean).join(" · ");
     for (const k of ["law", "fire", "flight"]) main.classList.toggle(k, !!top && top.kind === k);
     $("badge").classList.toggle("enc", live && !!top.encrypted);
     if (live && top.encrypted) {
@@ -137,8 +167,60 @@
   const esc = t => String(t).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
   // On the Pi's own screen a tap anywhere also brings the backlight back up (display.py dims it when quiet).
-  if (document.body.classList.contains("kiosk"))
+  const kiosk = document.body.classList.contains("kiosk");
+  if (kiosk)
     addEventListener("pointerdown", () => fetch("wake", { method: "POST" }).catch(() => {}), { capture: true });
+
+  // Panels, from panels.json next to display.py (see the README): a button each in the header, on the Pi's own
+  // screen only. A page opens in a frame; a camera plays from go2rtc. Each closes itself after its minutes so the
+  // screen goes back to the scanner. On a camera a tap on the picture starts the minutes again, and 30 s before
+  // it closes the picture says so.
+  let panelTimer, warnTimer, noteTimer, cam;
+  function openPanel(ms) { clearTimeout(panelTimer); $("panel").hidden = false; panelTimer = setTimeout(closePanel, ms); }
+  function closePanel() {
+    clearTimeout(panelTimer); clearTimeout(warnTimer); clearTimeout(noteTimer); $("camnote").hidden = true;
+    $("panel").hidden = true; $("pframe").src = "about:blank";
+    if (cam) { cam.remove(); cam = null; }  // the player hangs up when it leaves the page; go2rtc stops the camera
+    $("cam").hidden = true; $("pframe").hidden = false;
+  }
+  $("back").onclick = closePanel;
+  $("pcall").onclick = closePanel;
+  function camNote(text, ms) {
+    clearTimeout(noteTimer); $("camnote").firstChild.textContent = text; $("camnote").hidden = false;
+    if (ms) noteTimer = setTimeout(() => $("camnote").hidden = true, ms);
+  }
+  function keepWatching(p) {
+    openPanel(p.ms); clearTimeout(warnTimer);
+    if (p.ms > 60000) warnTimer = setTimeout(() => camNote("closing in 30 s · tap to keep watching"), p.ms - 30000);
+  }
+  function showPage(p) { closePanel(); $("pframe").title = p.label; $("pframe").src = p.url; openPanel(p.ms); }
+  async function showCamera(p) {
+    closePanel(); $("pframe").hidden = true; $("cam").hidden = false; keepWatching(p);
+    $("cam").onclick = () => { if (cam) { keepWatching(p); camNote(`watching ${p.minutes} more min`, 2500); } };
+    const msg = $("cammsg"), base = p.camera.replace(/\/?$/, "/");
+    msg.hidden = false; msg.textContent = "connecting…";
+    try { await import(base + "video-stream.js"); }
+    catch (e) { msg.textContent = "can't reach go2rtc at " + base; return; }
+    if ($("cam").hidden || cam) return;  // closed, or tapped twice, while the player loaded
+    cam = document.createElement("video-stream");
+    cam.mode = "mse"; cam.media = p.audio ? "video,audio" : "video";
+    $("cam").prepend(cam);
+    cam.video.controls = false; cam.video.muted = !p.audio;
+    cam.video.addEventListener("playing", () => msg.hidden = true);
+    cam.src = base + "api/ws?src=" + encodeURIComponent(p.stream);
+    const mine = cam;
+    setTimeout(() => { if (cam === mine && !msg.hidden) msg.textContent = "no picture yet: is the camera on?"; }, 20000);
+  }
+  if (kiosk) fetch("panels.json").then(r => r.json()).then(list => {
+    for (const p of list) {
+      if (!p.label || !(p.url || (p.camera && p.stream))) continue;
+      p.minutes = p.minutes || (p.camera ? 4 : 2); p.ms = p.minutes * 60000;
+      const b = document.createElement("button");
+      b.className = "btn"; b.type = "button"; b.textContent = p.label;
+      b.onclick = () => p.camera ? showCamera(p) : showPage(p);
+      $("panelBtns").append(b);
+    }
+  }).catch(e => console.warn("panels.json:", e));
 
   async function tick() {
     try {

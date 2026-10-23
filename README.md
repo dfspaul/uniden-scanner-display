@@ -10,6 +10,7 @@ It started because the scanner's own backlight died, but it turned out better th
 - **Colors by service type**: blue for law, red for fire / EMS / hospital, green for aircraft and air medical, gray for everything else. Full color while a call is coming in, a faint wash once it ends.
 - **Encrypted calls** are marked "encrypted · no audio", so you know why the scanner stopped and you hear nothing.
 - **History** (`/history`): the last 200 calls, grouped by day, with time, duration and service type.
+- **More than a scanner** on a touchscreen: buttons for a home dashboard, a camera or any other page, which go back to the scanner on their own ([panels](#more-than-a-scanner-panels)).
 - **Keeps retrying** if the scanner is off, unplugged, or still starting up, and the page warns you when it loses the scanner or the server.
 
 <img src="docs/history.gif" alt="History page on a phone, with made-up calls arriving at the top" width="320">
@@ -114,6 +115,46 @@ Each change of level is logged: `journalctl -u scanner-display -f`. Setting the 
 
 On the Touch Display 2 the touch chip and the panel's controller share one I2C bus. Now and then a brightness change hits the bus during a touch read and the screen goes dark: tapping doesn't wake it and setting the level again doesn't help. When that happens the kernel logs `Goodix-TS 10-005d: Error reading …`. `display.py` watches for that line, turns the screen's output off and on again in the kiosk (which brings it back after about 2 seconds), and logs `display reset after: …`. Reading the kernel log needs the service's user to be in the `adm` group, which the first user on Raspberry Pi OS already is. Each change of level is another chance for this to happen. To change the level less often, set `SCANNER_DIM` to the same value as `SCANNER_BRIGHT` (no dimming except at night, if you set `SCANNER_LAT` and `SCANNER_LON`), or set a longer `SCANNER_DIM_AFTER`.
 
+### More than a scanner: panels
+
+The touchscreen doesn't have to be only a scanner. Buttons in the header can open other things over the scanner page: a home dashboard, a weather page, a camera for the baby's room. Each panel closes itself after a few minutes, so the screen always comes back to the scanner. While a panel is open, a call coming in shows as a colored strip across the top; tap it, or **Scanner**, to go straight back.
+
+List them in `panels.json` next to `display.py` (copy [`panels.example.json`](panels.example.json)):
+
+```json
+[
+  { "label": "Home", "url": "https://dashboard.example.lan/", "minutes": 2 },
+  { "label": "Look in", "camera": "http://camera-box.local:1984/", "stream": "nursery", "minutes": 4 }
+]
+```
+
+| Field | |
+|---|---|
+| `label` | the button's text |
+| `url` | a web page to show in the panel |
+| `camera`, `stream` | a camera instead: a [go2rtc](https://github.com/AlexxIT/go2rtc) server's address and its stream name |
+| `minutes` | how long it stays open: 2 for a page and 4 for a camera unless you set it |
+| `audio` | `true` to play the camera's sound, if your screen has a speaker |
+
+The buttons only appear on the Pi's own screen; a phone or tablet already has its own apps for these. Reload the page after editing (`sudo systemctl restart kiosk`). If a button doesn't show up, check `journalctl -u scanner-display` for a `panels.json` error.
+
+**A web page** must allow being shown in a frame: many public sites send `X-Frame-Options` or a `frame-ancestors` policy that forbids it, and the panel stays blank. Your own dashboards usually work. A page on HTTPS with your own certificate needs that certificate trusted on the Pi.
+
+**A camera** plays through go2rtc, which turns almost any camera (RTSP, ONVIF, many brands' cloud cameras) into something a browser can play, and only pulls from the camera while someone is watching. Run it on the Pi or, better, on another machine at home. The player starts muted with the picture only; tap the picture to keep watching for another round of minutes, and it warns 30 seconds before it closes. A minimal `go2rtc.yaml`:
+
+```yaml
+api:
+  listen: ":1984"
+  origin: "*"   # lets the scanner page, on another host, load the player and the stream
+streams:
+  # A Pi 3 can't decode 1080p smoothly in software; 640x360 at 15 fps plays fine.
+  nursery: ffmpeg:rtsp://user:pass@192.168.1.50/stream1#video=h264#width=640#height=360#raw=-r 15
+```
+
+For a Ring camera, run [ring-mqtt](https://github.com/tsightler/ring-mqtt) next to go2rtc and use its RTSP stream (`rtsp://ring-mqtt:8554/<camera id>_live`) as the source. ring-mqtt keeps Ring's login fresh on its own; go2rtc's built-in Ring source doesn't save the renewed token, so it gets logged out after a restart. Ring takes about 5 seconds to start a live view.
+
+go2rtc has no login by default, and a camera in someone's bedroom is the last thing to leave open: keep it on your home network, don't forward a port to it, and don't put it behind a public tunnel or proxy.
+
 ## Colors
 
 The color comes from each channel's service type, which the scanner reports for every call (from the Uniden / RadioReference database):
@@ -156,7 +197,7 @@ Only one program can use the scanner's port at a time. While the service is runn
 
 ## Security
 
-The page has no login and shows what your scanner is receiving. Keep it on your home network: don't forward a port to it from the internet.
+The page has no login and shows what your scanner is receiving. Keep it on your home network: don't forward a port to it from the internet. The same goes for anything you add as a [panel](#more-than-a-scanner-panels), above all a camera.
 
 ## License
 
