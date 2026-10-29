@@ -82,6 +82,16 @@ Phones and iPads handle `.local` names fine. Some Android devices don't: if the 
 
 To update later: `git pull`, then `sudo systemctl restart scanner-display`.
 
+### If the Pi drops off Wi-Fi
+
+Now and then a Pi on Wi-Fi (a 3B+ especially) fails to rejoin after the router or modem restarts, and stays off the network until you unplug it. The page and the Pi's own screen both stop updating. An Ethernet cable avoids it. On Wi-Fi, from the same folder:
+
+```sh
+netwatch/install.sh
+```
+
+That adds a timer that pings your router every minute. After 3 misses in a row it restarts the Pi's Wi-Fi, and after 10 it reboots the Pi. It finds the router and Wi-Fi connection on its own (run it again if the Pi moves to another network). It also turns Wi-Fi power saving off and keeps the system log across reboots, which Raspberry Pi OS doesn't by default. To see what happened after an outage: `journalctl -t netwatch`, and `journalctl -b -1` for the log from before the last reboot. To turn it off: `sudo systemctl disable --now netwatch.timer`.
+
 ### An old iPad or phone as the screen
 
 Open the page in Safari, then use **Share → Add to Home Screen** so it opens full screen. To keep it on the page and awake, turn on **Guided Access** (Settings → Accessibility) and set **Auto-Lock** to Never while it's plugged in.
